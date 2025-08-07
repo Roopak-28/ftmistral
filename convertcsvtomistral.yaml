@@ -2,12 +2,16 @@ name: Convert CSV to Mistral JSONL
 description: Converts a QnA-style CSV dataset into Mistral-compatible JSONL format.
 
 inputs:
-  - { name: input_csv_pth, type: Path }
-  - { name: question_column, type: String }
-  - { name: answer_column, type: String }
+  - name: input_csv_pth
+    type: Path
+  - name: question_column
+    type: String
+  - name: answer_column
+    type: String
 
 outputs:
-  - { name: mistral_jsonl_pth, type: Path }
+  - name: mistral_jsonl_pth
+    type: Path
 
 implementation:
   container:
@@ -17,33 +21,34 @@ implementation:
       - -u
       - -c
       - |
-          import argparse
-          import pandas as pd
-          import os
-          import json
+        import argparse
+        import pandas as pd
+        import os
+        import json
+        
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--input_csv_pth", type=str, required=True)
+        parser.add_argument("--question_column", type=str, required=True)
+        parser.add_argument("--answer_column", type=str, required=True)
+        parser.add_argument("--mistral_jsonl_pth", type=str, required=True)
+        args = parser.parse_args()
+        
+        df = pd.read_csv(args.input_csv_pth)
+        os.makedirs(os.path.dirname(args.mistral_jsonl_pth), exist_ok=True)
+        
+        with open(args.mistral_jsonl_pth, "w", encoding="utf-8") as fout:
+            for _, row in df.iterrows():
+                question = row[args.question_column]
+                answer = row[args.answer_column]
+                text = f"### Question: {question}\n### Answer: {answer}"
+                fout.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
 
-          parser = argparse.ArgumentParser()
-          parser.add_argument("--input_csv_pth", type=str, required=True)
-          parser.add_argument("--question_column", type=str, required=True)
-          parser.add_argument("--answer_column", type=str, required=True)
-          parser.add_argument("--mistral_jsonl_pth", type=str, required=True)
-          args = parser.parse_args()
-
-          df = pd.read_csv(args.input_csv_pth)
-          os.makedirs(os.path.dirname(args.mistral_jsonl_pth), exist_ok=True)
-
-          with open(args.mistral_jsonl_pth, "w", encoding="utf-8") as fout:
-              for _, row in df.iterrows():
-                  question = row[args.question_column]
-                  answer = row[args.answer_column]
-                  text = f"### Question: {question}\n### Answer: {answer}"
-                  fout.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
     args:
-      - --input_csv_pth
-      - { inputPath: input_csv_pth }
-      - --question_column
-      - { inputValue: question_column }
-      - --answer_column
-      - { inputValue: answer_column }
-      - --mistral_jsonl_pth
-      - { outputPath: mistral_jsonl_pth }
+      - "--input_csv_pth"
+      - {inputPath: "input_csv_pth"}
+      - "--question_column"
+      - {inputValue: "question_column"}
+      - "--answer_column"
+      - {inputValue: "answer_column"}
+      - "--mistral_jsonl_pth"
+      - {outputPath: "mistral_jsonl_pth"}
