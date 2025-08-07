@@ -1,0 +1,42 @@
+name: Load HuggingFace Dataset to CSV
+description: Loads a Hugging Face dataset split and saves it as a CSV file for downstream use.
+
+inputs:
+  - { name: dataset_name, type: String }
+  - { name: split, type: String }
+
+outputs:
+  - { name: csv_path, type: Path }
+
+implementation:
+  container:
+    image: python:3.10
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import pandas as pd
+        from datasets import load_dataset
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--dataset_name", type=str, required=True)
+        parser.add_argument("--split", type=str, required=True)
+        parser.add_argument("--csv_path", type=str, required=True)
+        args = parser.parse_args()
+
+        ds = load_dataset(args.dataset_name, split=args.split)
+        df = ds.to_pandas()
+
+        os.makedirs(os.path.dirname(args.csv_path), exist_ok=True)
+        df.to_csv(args.csv_path, index=False)
+        print(f"Saved {len(df)} samples to {args.csv_path}")
+    args:
+      - --dataset_name
+      - { inputValue: dataset_name }
+      - --split
+      - { inputValue: split }
+      - --csv_path
+      - { outputPath: csv_path }

@@ -1,0 +1,56 @@
+name: Merge & Save Mistral
+description: Merges the PEFT LoRA adapter with the base Mistral model and saves the final standalone model locally.
+
+inputs:
+  - { name: fine_tuned_model_dir, type: Path }
+  - { name: base_model_name, type: String }
+  - { name: output_merged_model_dir, type: Path }
+
+outputs:
+  - { name: output_merged_model_dir, type: Path }
+
+implementation:
+  container:
+    image: python:3.10
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from peft import PeftModel, PeftConfig
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--fine_tuned_model_dir", type=str, required=True)
+        parser.add_argument("--base_model_name", type=str, required=True)
+        parser.add_argument("--output_merged_model_dir", type=str, required=True)
+        args = parser.parse_args()
+
+        print("🔄 Loading base model:", args.base_model_name)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            args.base_model_name,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+            device_map="auto"
+        )
+
+        print("🔌 Loading LoRA adapter from:", args.fine_tuned_model_dir)
+        model = PeftModel.from_pretrained(base_model, args.fine_tuned_model_dir)
+
+        print("🧬 Merging LoRA into base model...")
+        model = model.merge_and_unload()
+
+        print("💾 Saving merged model to:", args.output_merged_model_dir)
+        model.save_pretrained(args.output_merged_model_dir)
+        tokenizer = AutoTokenizer.from_pretrained(args.base_model_name, trust_remote_code=True)
+        tokenizer.save_pretrained(args.output_merged_model_dir)
+
+        print("✅ Merge complete.")
+    args:
+      - --fine_tuned_model_dir
+      - { inputPath: fine_tuned_model_dir }
+      - --base_model_name
+      - { inputValue: base_model_name }
+      - --output_merged_model_dir
+      - { outputPath: output_merged_model_dir }

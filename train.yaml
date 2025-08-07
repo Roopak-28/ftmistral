@@ -1,0 +1,87 @@
+name: Train Mistral
+description: Fine-tunes a Mistral model using PEFT LoRA on JSONL data and saves the PEFT adapter directory.
+
+inputs:
+  - { name: train_data_pth, type: String }
+  - { name: model_name, type: String }
+  - { name: epochs, type: Integer }
+  - { name: output_model_dir, type: String }
+
+outputs:
+  - { name: output_model_dir, type: Path }
+
+implementation:
+  container:
+    image: python:3.10
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        from datasets import Dataset
+        from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
+        from peft import LoraConfig, get_peft_model
+        import torch
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--train_data_pth", type=str, required=True)
+        parser.add_argument("--model_name", type=str, required=True)
+        parser.add_argument("--epochs", type=int, required=True)
+        parser.add_argument("--output_model_dir", type=str, required=True)
+        args = parser.parse_args()
+
+        with open(args.train_data_pth, encoding="utf-8") as f:
+            lines = [json.loads(line) for line in f]
+        dataset = Dataset.from_list(lines)
+
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+            device_map="auto"
+        )
+
+        lora_config = LoraConfig(
+            r=8, lora_alpha=32, lora_dropout=0.05,
+            bias="none", task_type="CAUSAL_LM"
+        )
+        model = get_peft_model(model, lora_config)
+
+        def tokenize_fn(batch):
+            return tokenizer(batch["text"], truncation=True, max_length=512, padding="max_length")
+
+        tokenized_ds = dataset.map(tokenize_fn, batched=True)
+        data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+
+        training_args = TrainingArguments(
+            output_dir=args.output_model_dir,
+            per_device_train_batch_size=2,
+            num_train_epochs=args.epochs,
+            logging_steps=10,
+            save_steps=50,
+            save_total_limit=2,
+            report_to="none",
+            fp16=True if torch.cuda.is_available() else False,
+        )
+
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized_ds,
+            data_collator=data_collator,
+        )
+        trainer.train()
+        model.save_pretrained(args.output_model_dir)
+        tokenizer.save_pretrained(args.output_model_dir)
+    args:
+      - --train_data_pth
+      - { inputValue: train_data_pth }
+      - --model_name
+      - { inputValue: model_name }
+      - --epochs
+      - { inputValue: epochs }
+      - --output_model_dir
+      - { outputPath: output_model_dir }
